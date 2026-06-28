@@ -17,6 +17,7 @@ def ready():
 @app.get("/version")
 def version():
     return {
+        # dume
         "service": SERVICE,
         "version": VERSION,
         "environment": ENVIRONMENT,
