@@ -1,5 +1,5 @@
 image:
   repository: ghcr.io/lotoos0/demo-api
-  tag: sha-54e2def
+  tag: sha-afbf208
 env:
   APP_ENV: dev
