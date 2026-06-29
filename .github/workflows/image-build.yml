@@ -6,6 +6,10 @@ on:
     types: [completed]
     branches: ["main"]
 
+concurrency:
+  group: demo-api-image-build-main
+  cancel-in-progress: false
+
 jobs:
   build-push:
     name: Build and push to GHCR

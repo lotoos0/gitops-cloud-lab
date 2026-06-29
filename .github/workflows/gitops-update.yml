@@ -6,6 +6,10 @@ on:
     types: [completed]
     branches: ["main"]
 
+concurrency:
+  group: demo-api-gitops-update-main
+  cancel-in-progress: true
+
 jobs:
   update-values:
     name: Update image tag in dev values
