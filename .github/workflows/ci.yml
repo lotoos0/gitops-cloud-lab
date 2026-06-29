@@ -3,8 +3,12 @@ name: CI
 on:
   push:
     branches: ["main"]
+    paths:
+      - "apps/demo-api/**"
   pull_request:
     branches: ["main"]
+    paths:
+      - "apps/demo-api/**"
 
 jobs:
   test:
