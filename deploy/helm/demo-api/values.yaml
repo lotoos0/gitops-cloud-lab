@@ -3,7 +3,7 @@ replicaCount: 1
 image:
   repository: ghcr.io/lotoos0/demo-api
   tag: dev
-  pullPolicy: Always
+  pullPolicy: IfNotPresent
 
 service:
   type: ClusterIP
