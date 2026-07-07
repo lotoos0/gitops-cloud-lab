@@ -1,8 +1,8 @@
 # Contributing
 
-This repo uses a small, practical Git flow.
+This is a personal lab repo, so there's no team to impress — but I still want a clean, traceable history. After 16+ issues and 2 versions shipped, the pattern that worked is simple: one issue, one branch, one PR, one squash commit.
 
-No heavy process. No long-lived branches. One issue, one branch, one PR.
+No Jira. No release trains. No ceremonies.
 
 ## Basic rule
 
@@ -10,11 +10,11 @@ No heavy process. No long-lived branches. One issue, one branch, one PR.
 1 issue = 1 branch = 1 PR = 1 squash commit on main
 ```
 
-Work should be easy to trace from issue → PR → final commit.
+This makes it trivial to answer "why does this line exist?" — you follow the commit to the PR, the PR to the issue, the issue to the PASS criteria. The whole story is there.
 
 ## Branch naming
 
-Use one of these prefixes:
+3 prefixes cover everything this project does:
 
 ```text
 fix/<issue-number>-short-name
@@ -22,7 +22,7 @@ feature/<issue-number>-short-name
 docs/<issue-number>-short-name
 ```
 
-Examples:
+Real examples from this repo:
 
 ```text
 fix/14-limit-ci-to-demo-api-changes
@@ -32,11 +32,9 @@ feature/18-prod-gitops-env
 docs/21-fresh-machine-bootstrap
 ```
 
-Keep branch names short and readable.
+The issue number in the branch name is the single most useful piece of information — it ties everything together without any extra tooling.
 
 ## PR flow
-
-Normal flow:
 
 ```bash
 git checkout main
@@ -60,21 +58,21 @@ Then:
 4. Squash merge into `main`.
 5. Delete the branch.
 
+Step 3 is the one that actually matters. If the PASS criteria aren't met, the PR doesn't merge — no exceptions.
+
 ## Merge strategy
 
-Use **squash merge**.
+**Squash merge. Always.**
 
-There should be one clean commit on `main` per issue.
+Every issue gets exactly 1 clean commit on `main`. The messy WIP commits stay in the PR and disappear after merge. `git log` on `main` should read like a changelog, not a therapy session.
 
 ## Squash commit format
-
-Use this format:
 
 ```text
 type(scope): short description (#issue-number)
 ```
 
-Examples:
+Real examples:
 
 ```text
 fix(ci): limit CI to demo-api changes (#14)
@@ -84,7 +82,7 @@ feature(gitops): add prod environment (#18)
 docs(bootstrap): add fresh machine bootstrap runbook (#21)
 ```
 
-Common types:
+Types used in this project:
 
 ```text
 fix
@@ -94,7 +92,7 @@ chore
 refactor
 ```
 
-Use a scope that explains the area:
+Scopes that make sense here:
 
 ```text
 ci
@@ -106,33 +104,29 @@ rollback
 docs
 ```
 
+The `(#issue-number)` at the end is what GitHub uses to auto-close the issue on merge. Don't skip it.
+
 ## Main branch
 
-Do not push directly to `main` during normal work.
-
-Use:
+Don't push directly to `main` during normal work. The flow is:
 
 ```text
 branch -> PR -> squash merge -> delete branch
 ```
 
-Known constraint:
+Honest caveat:
 
 ```text
 main does not have branch protection yet.
 ```
 
-So this flow is a project convention, not a technical enforcement.
-
-Follow it anyway.
+So nothing technically stops a direct push. I'm choosing not to do it anyway — the PR flow exists for traceability, not bureaucracy. A history full of raw direct commits is harder to read and impossible to revert cleanly.
 
 ## GitOps bot exception
 
-The `gitops-update.yml` workflow is allowed to push directly to `main`.
+`gitops-update.yml` is allowed to push directly to `main`. This is intentional.
 
-That commit is created by `github-actions[bot]` using `GITHUB_TOKEN`.
-
-This is part of the GitOps delivery mechanism:
+That commit comes from `github-actions[bot]` via `GITHUB_TOKEN` and is part of the automated delivery loop:
 
 ```text
 image built
@@ -141,35 +135,33 @@ image built
 -> Argo CD syncs the new desired state
 ```
 
-Bot commits are not a violation of the PR flow.
-
-Expected bot commit style:
+Bot commits look like this:
 
 ```text
 chore: update demo-api image tag to sha-xxxxxxx
 ```
 
+This is not a violation of the PR flow — it's the GitOps mechanism working as designed. Dev is supposed to be automatic. Prod is not.
+
 ## Direct human commits
 
-Human direct commits to `main` are not the normal workflow.
+Occasionally one happens — usually during debugging or a quick emergency fix. That's fine, it's a lab.
 
-If one happens during debugging or emergency cleanup, leave the commit in history and document the reason in the relevant issue or runbook.
+When it does happen: leave the commit in history and drop a note in the relevant issue or runbook explaining why. Don't clean it up by amending or force-pushing — that's worse than the original sin.
 
-Do not make it the default pattern.
+Just don't make it the default.
 
 ## Before opening a PR
 
-Check the issue PASS criteria.
+Check the issue PASS criteria. All of them.
 
-For code changes, run the relevant local checks when possible.
-
-For GitOps changes, verify the expected Argo CD state after merge:
+For GitOps changes, the expected end state after merge is:
 
 ```text
 Synced + Healthy
 ```
 
-For promotion changes, verify the promoted image tag:
+For promotion changes, the full verification chain is:
 
 ```text
 gitops/envs/prod/values.yaml
@@ -177,17 +169,19 @@ gitops/envs/prod/values.yaml
 -> prod /version returns the promoted tag
 ```
 
+If it's not there yet, the PR isn't ready.
+
 ## What not to include in PRs
 
-Avoid mixing unrelated work.
-
-Do not combine:
+Don't mix unrelated work. Combining things like:
 
 ```text
 CI fix + docs cleanup + prod promotion
 ```
 
-Prefer small slices:
+...makes the commit history useless and rollbacks painful. If 1 of those 3 things needs to be reverted, you're reverting all 3.
+
+Small slices:
 
 ```text
 one problem
@@ -198,9 +192,7 @@ one proof
 
 ## Project style
 
-This repo values proof over theory.
-
-A change is done when it is:
+This repo values proof over theory. Saying "it should work" isn't done. Done means:
 
 ```text
 implemented
@@ -208,3 +200,5 @@ documented if needed
 tested against PASS criteria
 proved with real output when the issue asks for proof
 ```
+
+If an issue asks for a screenshot or a terminal output in `docs/outputs/`, it goes in `docs/outputs/`. That's the receipt.
