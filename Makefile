@@ -1,4 +1,4 @@
-.PHONY: help cluster-up cluster-down argocd-install
+.PHONY: help cluster-up cluster-down argocd-install fix-coredns
 
 help:
 	@echo "Usage: make <target>"
@@ -16,3 +16,6 @@ cluster-down:
 argocd-install:
 	kubectl create namespace argocd
 	kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+fix-coredns:
+	./infra/local/scripts/fix-coredns.sh

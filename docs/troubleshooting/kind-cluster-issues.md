@@ -22,6 +22,7 @@ Events:
 `imagePullPolicy: Always` tells Kubernetes to contact the remote registry on every pod start to verify the image digest — even when a local copy is present. In a kind cluster without reliable external DNS, the registry lookup fails.
 
 This affected:
+
 - All Argo CD components (`quay.io/argoproj/argocd:v3.4.4`, `ghcr.io/dexidp/dex`, `public.ecr.aws/.../redis`)
 - The demo-api Helm chart (default `pullPolicy: Always` in `deploy/helm/demo-api/values.yaml`)
 
@@ -51,7 +52,7 @@ kubectl patch deployment argocd-dex-server -n argocd --type='json' \
 
 ```yaml
 image:
-  pullPolicy: IfNotPresent  # was: Always
+  pullPolicy: IfNotPresent # was: Always
 ```
 
 Commit and push. Argo CD will roll out the change automatically.
@@ -79,6 +80,7 @@ dial tcp: lookup quay.io on 172.23.0.1:53: server misbehaving
 ```
 
 This blocked:
+
 - Argo CD `repo-server` from fetching the GitHub repository
 - Kubernetes from pulling images (before `IfNotPresent` was set)
 
@@ -111,6 +113,9 @@ Then restart CoreDNS to pick up the change:
 ```bash
 kubectl rollout restart deployment/coredns -n kube-system
 ```
+
+> This is now automated: run `make fix-coredns` (see `docs/troubleshooting/coredns.md`)
+> instead of the manual `kubectl edit` above.
 
 ### Verification
 
