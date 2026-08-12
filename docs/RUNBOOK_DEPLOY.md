@@ -37,21 +37,11 @@ Total time from `git push` to `/version` returning the new tag: **~3–5 minutes
 
 These steps are needed once to get the cluster and Argo CD running. After that, all deployments are automatic.
 
+See `docs/runbooks/fresh-machine-bootstrap.md` for the full from-scratch setup.
+Short version:
+
 ```bash
-# 1. Create the kind cluster
-make cluster-up
-
-# 2. Install Argo CD
-make argocd-install
-
-# 3. Wait for Argo CD to be ready (~2 min)
-kubectl wait --for=condition=available deployment/argocd-server -n argocd --timeout=120s
-
-# 4. Apply the Argo CD Application manifest
-kubectl apply -f gitops/apps/demo-api-application.yaml
-
-# 5. Get the initial Argo CD admin password
-kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+make bootstrap
 ```
 
 ## Check deployment status
@@ -69,9 +59,9 @@ kubectl logs -l app=demo-api -n demo-api
 
 ## If the pipeline gets stuck
 
-| Symptom | Likely cause | Fix |
-|---------|-------------|-----|
-| image-build not triggered | CI failed | Check ci.yml run, fix the test |
-| gitops-update not triggered | image-build failed | Check image-build run logs |
-| Argo CD shows OutOfSync | values.yaml drifted from cluster | Let Argo CD auto-sync, or click Sync in UI |
-| Argo CD shows Degraded | Pod crashing | Check `kubectl logs`, likely app issue |
+| Symptom                     | Likely cause                     | Fix                                        |
+| --------------------------- | -------------------------------- | ------------------------------------------ |
+| image-build not triggered   | CI failed                        | Check ci.yml run, fix the test             |
+| gitops-update not triggered | image-build failed               | Check image-build run logs                 |
+| Argo CD shows OutOfSync     | values.yaml drifted from cluster | Let Argo CD auto-sync, or click Sync in UI |
+| Argo CD shows Degraded      | Pod crashing                     | Check `kubectl logs`, likely app issue     |
