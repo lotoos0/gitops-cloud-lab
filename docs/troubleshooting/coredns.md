@@ -19,9 +19,9 @@ public DNS instead sidesteps it.
 
 ## Usage
 
-\`\`\`bash
+```bash
 make fix-coredns
-\`\`\`
+```
 
 Safe to run more than once — it checks the current Corefile first and does
 nothing if the forward target is already `8.8.8.8 8.8.4.4`.
