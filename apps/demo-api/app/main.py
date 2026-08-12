@@ -6,6 +6,7 @@ app = FastAPI(title=SERVICE)
 
 @app.get("/health")
 def health():
+    # liveness probe target
     return {"status": "ok"}
 
 
