@@ -1,61 +1,92 @@
-# Rollback Runbook
+# Rollback runbook
 
-Rolling back is boring on purpose. No special tooling, no kubectl magic — just `git revert`. Argo CD does the rest.
+Rollback is boring on purpose: create **1 revert commit**, push it, let Argo CD
+restore the previous desired state. No cluster-side improvisation required.
 
-## When to use this
+> **My rule here:** Git caused the deployment, so Git records the recovery.
+> That keeps the audit trail complete and prevents Argo CD from undoing a
+> well-meant manual fix five minutes later.
 
-You pushed a change, the pipeline ran, Argo CD synced, and now something is broken. `/version` shows the new tag but the app misbehaves. You want to go back to the previous image tag.
+## Use this when
 
-## Step 1 — Find the GitOps commit you want to undo
+The new tag is deployed and Argo CD is healthy, but the application behavior is
+not. `/version` confirms the new image, and you need the previously declared
+tag back.
+
+If no new tag reached Git or the cluster, diagnose the delivery stage instead;
+there may be nothing to roll back.
+
+## 1. Find the bad GitOps commit
+
+For dev:
 
 ```bash
 git log --oneline gitops/envs/dev/values.yaml
 ```
 
-Output will look something like:
+Example:
 
+```text
+332180b chore: update demo-api image tag to sha-3cf5f25   # bad
+a1b2c3d chore: update demo-api image tag to sha-abc1234   # previous good state
 ```
-332180b chore: update demo-api image tag to sha-3cf5f25   ← the bad one
-a1b2c3d chore: update demo-api image tag to sha-abc1234   ← the good one (target)
-```
 
-You want to revert the bad commit (`332180b` in this example).
+The commit to revert is `332180b`: the one that introduced the bad tag.
 
-## Step 2 — Revert it
+For prod, inspect `gitops/envs/prod/values.yaml` instead.
+
+## 2. Revert and push
 
 ```bash
 git revert 332180b --no-edit
 git push
 ```
 
-This creates a new commit that undoes the `values.yaml` change. The bad image tag is gone, the previous tag is back. Full audit trail stays intact.
+This does not erase history. It adds a new commit that reverses the old values
+change, which is exactly the receipt an incident deserves.
 
-## Step 3 — Wait for Argo CD to sync (~3 min)
+## 3. Wait for reconciliation
 
-Argo CD polls Git every ~3 minutes. Once it detects the reverted `values.yaml`, it will sync the cluster back to the previous desired state — no intervention needed.
-
-You can watch the status in the Argo CD UI or:
-
-```bash
-kubectl get pods -n demo-api -w
-```
-
-## Step 4 — Verify
+Argo CD polls Git about every **3 minutes**. Watch the relevant Application and
+pod:
 
 ```bash
-curl http://<your-service-endpoint>/version
+kubectl get application demo-api-dev -n argocd -w
+kubectl get pods -n demo-api -l app=demo-api-dev -w
 ```
 
-The response should show the previous image tag (e.g. `sha-abc1234`).
+For prod, use Application `demo-api-prod`, namespace `demo-api-prod` and label
+`app=demo-api-prod`.
 
-## What NOT to do
+## 4. Verify all 3 signals
+
+For dev:
 
 ```bash
-# Don't do this:
-kubectl set image deployment/demo-api demo-api=ghcr.io/lotoos0/demo-api:sha-abc1234
-
-# Or this:
-helm upgrade demo-api ./deploy/helm/demo-api --set image.tag=sha-abc1234
+yq e '.image.tag' gitops/envs/dev/values.yaml
+kubectl get application demo-api-dev -n argocd
+kubectl port-forward svc/demo-api-dev -n demo-api 8080:80
+curl http://localhost:8080/version
 ```
 
-Both of these bypass Git and put the cluster in a state that doesn't match `gitops/envs/dev/values.yaml`. Argo CD will immediately show `OutOfSync` and will revert your change on the next sync. Don't fight Argo CD — let Git win.
+You are done when:
+
+1. Git contains the previous tag.
+2. Argo CD reports `Synced` and `Healthy`.
+3. `/version` returns that same previous tag.
+
+## Do not bypass Git
+
+Avoid these tempting commands:
+
+```bash
+kubectl set image deployment/demo-api-dev \
+  demo-api=ghcr.io/lotoos0/demo-api:sha-abc1234
+
+helm upgrade demo-api ./deploy/helm/demo-api \
+  --set image.tag=sha-abc1234
+```
+
+Both create cluster state that disagrees with the repository. With self-healing
+enabled, Argo CD will eventually restore the Git version anyway. Do not fight
+the robot whose documented job is to win that argument.

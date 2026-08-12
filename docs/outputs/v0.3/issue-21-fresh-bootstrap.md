@@ -1,18 +1,23 @@
-# Issue #21: fresh-machine bootstrap runbook — proof
+# Issue #21 proof: bootstrap from an empty machine
 
-`make bootstrap` chains `kind-create → fix-coredns → argocd-install → argocd-apps-apply → verify`
-so a brand new machine can go from nothing to two synced Argo CD apps with one command. To prove
-it actually works end to end, both logs below come from a real run on a machine with no prior
-cluster: `docs/RUNBOOK_DEPLOY.md` was followed step by step, output was captured with `tee`, and
-`verify` was run separately afterwards to double-check the apps synced and served traffic.
+This is a real clean-start run of `make bootstrap`, followed by a second
+verification after Argo CD converged. The Make target chains **5 operations**:
+`kind-create`, `fix-coredns`, `argocd-install`, `argocd-apps-apply` and `verify`.
+One command should produce **1 cluster**, **2 Applications**, **2 namespaces**
+and **2 responding `/version` endpoints**.
 
-Along the way this run also caught a real bug: `kubectl apply` on the Argo CD install manifest
-blew past the 262144-byte annotation limit on the `applicationsets.argoproj.io` CRD (its
-`last-applied-configuration` annotation duplicates the whole manifest as JSON). Fixed in
-`Makefile:26` by switching `argocd-install` to `kubectl apply --server-side`, which skips that
-annotation entirely. The log below is the run _after_ that fix, so it goes clean.
+> **Why I kept the full output:** a bootstrap claim is easy to write and easy
+> to fake accidentally with leftover state. These logs came from a machine with
+> no previous lab cluster, so the repository had to carry the whole story.
 
-## `make bootstrap` — full run
+The run also found a concrete bug before producing the clean log below.
+Client-side `kubectl apply` exceeded the **262,144-byte** annotation limit on the
+`applicationsets.argoproj.io` CRD because
+`last-applied-configuration` duplicated the manifest as JSON. `Makefile:26` now
+uses `kubectl apply --server-side`, which avoids that annotation. A rather large
+number of bytes for one small flag, but here we are.
+
+## First pass: complete `make bootstrap` output
 
 ```
 $ make bootstrap 2>&1 | tee /tmp/bootstrap-run.log
@@ -153,12 +158,16 @@ kubectl get pods -n demo-api-prod -l app=demo-api-prod
 No resources found in demo-api-prod namespace.
 ```
 
-`verify` ran here at the tail end of `bootstrap`, only ~14 seconds after the Argo CD Applications
-were created — the applicationset controller hadn't picked them up yet and the app pods hadn't
-scheduled, so both show up empty. That's a race in `verify`'s timing, not a bootstrap failure: the
-second log below, taken about a minute later, shows everything settled and healthy.
+The first `verify` ran only about **14 seconds** after the Application resources
+were created. At that point **3 Argo CD pods** were still initializing and both
+application namespaces contained **0 workload pods**. This exposes a timing
+gap in the Make target: it prints state immediately but does not wait for both
+Applications to become healthy.
 
-## `verify` — rerun ~1 minute later, everything settled
+I therefore reran verification about **1 minute** later. That second observation
+distinguishes eventual convergence from wishful thinking.
+
+## Second pass: verification after about 1 minute
 
 ```
 ## kubectl get pods -A
@@ -199,6 +208,8 @@ Handling connection for 8081
 {"service":"demo-api","version":"sha-a6e5648","environment":"prod","commit":"a6e564833b0f9a2764ef1180d776b79de3b4560f"}
 ```
 
-Both apps `Synced` / `Healthy`, both `/version` endpoints answer with the right `environment`
-label — dev and prod are genuinely isolated deployments of the same commit, not one namespace
-pretending to be two.
+Final result: **2 of 2 Applications** were `Synced` and `Healthy`; **2 of 2
+workload pods** were `1/1 Running`; and **2 of 2 endpoints** returned
+`sha-a6e5648`. The environment labels differed correctly (`dev` and `prod`), so
+these are isolated deployments of the same commit—not one namespace wearing
+two name badges.

@@ -1,25 +1,29 @@
-# Issue #22: prod promotion — proof
+# Issue #22 proof: a real production promotion
 
-`docs/runbooks/prod-promotion.md` documents the PR-based dev-to-prod promotion flow.
-This is proof it was actually followed end to end, not just written down: dev was
-bumped to a fresh tag first (`sha-8f1a2ee`, so the promotion PR would have a real
-diff instead of a no-op — dev and prod happened to already match on the previous
-tag from bootstrap testing), then that tag was promoted to prod through
-[PR #30](https://github.com/lotoos0/gitops-cloud-lab/pull/30), squash-merged, no
-`kubectl apply` or `helm upgrade` from a laptop anywhere in the path.
+This is the receipt for the PR-based dev-to-prod flow. I first moved dev to
+`sha-8f1a2ee`, then promoted that exact artifact through
+[PR #30](https://github.com/lotoos0/gitops-cloud-lab/pull/30). The extra dev
+change was necessary because bootstrap testing had left dev and prod on the
+same earlier tag; promoting it again would have proved only that Git accepts an
+empty diff. Charming, but not useful.
 
-## 1. Source dev tag
+> **What this proves:** **1 source tag**, **1 changed values line**, **1 merged
+> PR**, **1 healthy prod Application** and **1 matching runtime response**. It
+> used **0** laptop-side `kubectl apply` or `helm upgrade` commands.
 
-```
+## 1. Source tag from healthy dev
+
+```text
 $ yq e '.image.tag' gitops/envs/dev/values.yaml
 sha-8f1a2ee
 ```
 
-Confirmed `demo-api-dev` was `Synced` / `Healthy` on this tag before promoting.
+Before promotion, `demo-api-dev` reported `Synced` and `Healthy` on this tag.
 
-## 2. The promotion diff
+## 2. The complete promotion diff
 
-Exactly one line, `gitops/envs/prod/values.yaml`:
+Exactly **1 line** changed in `gitops/envs/prod/values.yaml`: **1 deletion** and
+**1 addition**.
 
 ```diff
 diff --git a/gitops/envs/prod/values.yaml b/gitops/envs/prod/values.yaml
@@ -35,12 +39,15 @@ index d466b86..52266f3 100644
    APP_ENV: prod
 ```
 
-## 3. PR reference and merge
+Repository, environment and chart configuration stayed unchanged. The
+promotion moved the artifact reference and kept its hands to itself.
+
+## 3. PR and merge evidence
 
 - **PR:** [#30 — Promote demo-api sha-8f1a2ee to prod](https://github.com/lotoos0/gitops-cloud-lab/pull/30)
-- **State:** `MERGED`, squash, branch deleted after merge
+- **Result:** squash-merged; source branch deleted
 
-```
+```text
 title:  Promote demo-api sha-8f1a2ee to prod
 state:  MERGED
 number: 30
@@ -49,22 +56,23 @@ additions: 1
 deletions: 1
 ```
 
-## 4. Argo CD synced prod
+## 4. Argo CD reconciliation evidence
 
-Picked up on the next poll after merge, no manual `kubectl apply`:
+Argo CD picked up the merged desired state without a manual deployment:
 
-```
+```text
 $ kubectl get application demo-api-prod -n argocd
 NAME            SYNC STATUS   HEALTH STATUS
 demo-api-prod   Synced        Healthy
 ```
 
-## 5. Prod `/version` shows the promoted tag
+## 5. Runtime evidence
 
-```
+```text
 $ curl -s http://localhost:8081/version
 {"service":"demo-api","version":"sha-8f1a2ee","environment":"prod","commit":"8f1a2ee0b39dc5f035fcb43cca6ba995166a884c"}
 ```
 
-`environment: prod` and `version: sha-8f1a2ee` match the promoted tag exactly —
-prod moved forward through a PR, and nothing else touched the cluster by hand.
+The three identifiers line up: desired tag `sha-8f1a2ee`, runtime version
+`sha-8f1a2ee`, and full commit beginning `8f1a2ee`. The response also says
+`prod`, so this is the production deployment—not dev wearing a fake moustache.

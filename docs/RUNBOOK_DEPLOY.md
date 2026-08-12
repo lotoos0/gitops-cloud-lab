@@ -1,67 +1,88 @@
-# Deploy Runbook
+# Deploy runbook
 
-There is no deploy button. The deployment happens automatically when you push code. This runbook explains what's actually happening under the hood and what to do if something gets stuck.
+There is no deploy button for dev. Push application code to `main`, then the
+pipeline and Argo CD do the repetitive work while you verify the result like a
+responsible adult with `curl`.
 
-## The automatic flow (happy path)
+> **Why this runbook exists:** automation removes keystrokes, not ownership. I
+> still want the reader to know which stage owns the change and where to look
+> when the happy path becomes merely aspirational.
 
-```
-git push to main
-  ↓
-CI (GitHub Actions: ci.yml)
-  — runs pytest, 4 tests
-  — if tests fail: pipeline stops, nothing gets deployed
-  ↓
-Build and push image (image-build.yml)
-  — triggered by CI success via workflow_run
-  — builds Docker image from apps/demo-api/
-  — pushes to ghcr.io/lotoos0/demo-api:sha-<7-char-SHA>
-  ↓
-GitOps update (gitops-update.yml)
-  — triggered by image-build success
-  — yq writes new image.tag to gitops/envs/dev/values.yaml
-  — commits: "chore: update demo-api image tag to sha-xxxx"
-  — pushes to main
-  ↓
-Argo CD (in kind cluster)
-  — polls Git every ~3 minutes
-  — detects values.yaml change
-  — runs helm upgrade with new image tag
-  — deployment rolls out new pods
-  ↓
-curl /version → returns new tag ✅
+## Expected dev delivery
+
+```text
+push a change under apps/demo-api/** to main
+  -> 1. CI runs 4 pytest tests
+  -> 2. image-build pushes ghcr.io/lotoos0/demo-api:sha-<7-char-SHA>
+  -> 3. gitops-update writes the tag to gitops/envs/dev/values.yaml
+  -> Argo CD notices the commit and renders the shared Helm chart
+  -> Kubernetes replaces the dev pod
+  -> /version returns the new tag
 ```
 
-Total time from `git push` to `/version` returning the new tag: **~3–5 minutes**.
+Budget about **3-5 minutes** from push to the updated endpoint. The path uses
+**3 workflows**, changes **1 desired-state field** and requires **0 manual
+cluster deployment commands**.
 
-## Bootstrap (first time only)
+If a test, build or upstream workflow fails, the next stage does not run. That
+is a feature. A pipeline that bravely deploys failed input is just a catapult.
 
-These steps are needed once to get the cluster and Argo CD running. After that, all deployments are automatic.
+## First setup
 
-See `docs/runbooks/fresh-machine-bootstrap.md` for the full from-scratch setup.
-Short version:
+On a clean machine, use the complete bootstrap:
 
 ```bash
 make bootstrap
 ```
 
-## Check deployment status
+It runs **5 targets** in order: `kind-create`, `fix-coredns`,
+`argocd-install`, `argocd-apps-apply` and `verify`. See the
+[fresh-machine bootstrap runbook](runbooks/fresh-machine-bootstrap.md) for
+prerequisites, expected timing and endpoint checks.
+
+## Verify a deployment
+
+Check the desired tag first:
 
 ```bash
-# Argo CD app status
-kubectl get applications -n argocd
-
-# Pods
-kubectl get pods -n demo-api
-
-# Logs
-kubectl logs -l app=demo-api -n demo-api
+yq e '.image.tag' gitops/envs/dev/values.yaml
 ```
 
-## If the pipeline gets stuck
+Then check all **3 runtime layers**:
 
-| Symptom                     | Likely cause                     | Fix                                        |
-| --------------------------- | -------------------------------- | ------------------------------------------ |
-| image-build not triggered   | CI failed                        | Check ci.yml run, fix the test             |
-| gitops-update not triggered | image-build failed               | Check image-build run logs                 |
-| Argo CD shows OutOfSync     | values.yaml drifted from cluster | Let Argo CD auto-sync, or click Sync in UI |
-| Argo CD shows Degraded      | Pod crashing                     | Check `kubectl logs`, likely app issue     |
+```bash
+# reconciliation
+kubectl get application demo-api-dev -n argocd
+
+# workload
+kubectl get pods -n demo-api -l app=demo-api-dev
+
+# deployed metadata
+kubectl port-forward svc/demo-api-dev -n demo-api 8080:80
+curl http://localhost:8080/version
+```
+
+Success means `Synced`, `Healthy`, a `Running` pod, and the same image tag in
+Git and `/version`.
+
+## If a stage stalls
+
+| Symptom | First place to look | What the result means |
+| --- | --- | --- |
+| image build never starts | the `CI` run | all 4 tests must pass first |
+| GitOps update never starts | `Build and push image` logs | no successful image means no tag to declare |
+| Argo CD says `OutOfSync` | Application details and repo access | Git and cluster have not converged yet |
+| Argo CD says `Degraded` | `kubectl logs -l app=demo-api-dev -n demo-api` | the desired pod exists but is unhealthy |
+| pod says `ImagePullBackOff` | pod events and kind troubleshooting | registry auth, DNS or pull policy is blocking it |
+
+For known local-cluster failures, continue with
+[kind troubleshooting](troubleshooting/kind-cluster-issues.md). If the new
+version is genuinely bad, stop debugging the pipeline and use the
+[rollback runbook](RUNBOOK_ROLLBACK.md).
+
+## Production is intentionally different
+
+The automatic chain updates **dev only**. Production receives an already-built
+tag through a human-reviewed values PR. Follow the
+[prod promotion runbook](runbooks/prod-promotion.md); do not turn a dev push
+into a surprise production hobby.

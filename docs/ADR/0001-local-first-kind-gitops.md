@@ -1,48 +1,74 @@
-# ADR 0001 — Local-first cluster with kind, GitOps via Argo CD + yq
+# ADR 0001: local kind cluster and explicit GitOps updates
 
-## Status
-
-Accepted
+- **Status:** Accepted
+- **Decision scope:** local cluster and image-tag delivery
+- **Initial environment:** dev in v0.1; prod added in v0.3
 
 ## Context
 
-I needed a local Kubernetes environment for a GitOps lab. Requirements:
-- spins up fast, no cloud cost, runs on a single developer machine
-- mirrors a real delivery flow: CI → image → explicit GitOps update → CD sync
-- simple enough that the flow is the focus, not the infrastructure
+I wanted a Kubernetes lab that starts on one developer machine, costs no cloud
+money and still demonstrates the real chain from CI to image to desired state
+to reconciliation. The delivery mechanics had to stay visible; the cluster
+itself did not need to audition for a hyperscaler.
 
-I looked at 3 local cluster options and 2 CD approaches.
+> **Decision principle:** optimize for a flow the reader can inspect, explain
+> and revert. Convenience matters, but hidden state makes a poor teaching aid.
 
-### Local cluster candidates
+I compared **3 local cluster options** and **2 image-update approaches**.
 
-| Option | Why I looked at it | Why I passed |
-|--------|--------------------|--------------|
-| `minikube` | most popular, tons of docs | heavier resource usage, more flags to manage |
-| `k3d` | fast, k3s-based, solid choice | less common in enterprise CI/CD examples |
-| `kind` | lightweight, used in many OSS projects and GitHub Actions CI | — picked this one |
+## Local cluster options
 
-**Winner: kind** — fast to start, well-documented, widely used in GitOps tooling examples, and the name makes me smile every time.
+| Option | Advantage | Reason not selected |
+| --- | --- | --- |
+| `minikube` | mature and widely documented | more resource and driver choices than this lab needs |
+| `k3d` | fast, lightweight k3s distribution | less representative of the OSS and CI examples I wanted to mirror |
+| `kind` | small, disposable, common in CI | selected |
 
-### GitOps image update candidates
+I selected `kind`: one node, cluster name `gitops-cloud-lab`. It starts quickly,
+uses familiar Kubernetes APIs and, yes, the name is pleasantly optimistic.
 
-| Option | Why I looked at it | Why I passed |
-|--------|--------------------|--------------|
-| Argo CD Image Updater | automates image tag detection | adds a second controller, hides the update step from Git history |
-| **GitHub Actions + yq** | explicit update committed to Git | — picked this one |
+## Image-update options
 
-The whole point of this lab is to see the full flow. If image tag updates happen automatically in the background, I lose half the story. With `yq`, every tag change is a visible commit in `gitops/envs/dev/values.yaml` — auditable, revertable, and easy to explain to anyone reading the repo.
+| Option | Advantage | Trade-off |
+| --- | --- | --- |
+| Argo CD Image Updater | detects and updates tags automatically | adds another controller and hides part of the learning path |
+| GitHub Actions + `yq` | records every selected tag in Git | requires an explicit workflow and bot commit |
+
+I selected GitHub Actions plus `yq`. Each dev delivery changes exactly **1
+field**, `image.tag`, and records it in `gitops/envs/dev/values.yaml`. That
+makes the deployed artifact auditable and rollback a normal Git operation.
 
 ## Decision
 
-- **Local cluster:** `kind`, single node, cluster name `gitops-cloud-lab`
-- **CD tool:** Argo CD — watches `gitops/envs/dev/values.yaml`, no auto-image-update plugins
-- **GitOps update:** GitHub Actions + `yq` — 1 workflow, 1 yq command, 1 commit back to main
-- **Environments in v0.1:** dev only — `gitops/envs/dev/` is the only env directory
-- **Cloud infra:** `infra/aws/` intentionally excluded from v0.1, returns in v0.4
+- Run a single-node `kind` cluster named `gitops-cloud-lab`.
+- Use Argo CD to reconcile a shared Helm chart from `main`.
+- Use **3 GitHub Actions workflows** for testing, image publication and the
+  explicit dev tag update.
+- Keep environment-specific desired state in separate values files.
+- Do not add an automatic image-update controller.
+- Keep cloud infrastructure outside the completed local-first design.
+
+The system now has **2 environments**. Dev tags update automatically after the
+pipeline succeeds; prod receives a verified dev tag through a human PR. Argo CD
+then reconciles both using the same chart.
 
 ## Consequences
 
-- **Rollback** = `git revert` on the GitOps commit. No kubectl, no helm, full history.
-- **Adding staging/prod** = new `gitops/envs/<env>/` directory + new Argo CD Application. No structural changes needed.
-- **Moving to a cloud cluster** = swap the kubeconfig. Argo CD config, Helm chart, and GitOps values stay exactly the same.
-- **The yq commit is always visible** — anyone reading `git log` can see exactly which image tag was deployed and when.
+### Benefits
+
+- Every deployed tag is visible in Git history.
+- Rollback is `git revert`, with no hidden cluster mutation.
+- Dev and prod reuse one chart while keeping separate values and namespaces.
+- Moving the control plane later does not require redesigning the application
+  or GitOps layout.
+
+### Costs and limits
+
+- The workflow bot needs write access to update dev values.
+- Branch protection would require a different bot identity or PR-based update.
+- Argo CD polls rather than receiving an immediate deployment command, so sync
+  commonly adds up to about **3 minutes**.
+- Local DNS required a documented CoreDNS workaround on the author's network.
+
+I accept those costs because they keep the central lesson intact: Git contains
+the desired state, and every transition leaves a readable trail.

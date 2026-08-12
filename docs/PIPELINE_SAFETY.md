@@ -1,29 +1,31 @@
-# Pipeline Safety — v0.2
+# Pipeline safety: what v0.2 fixed
 
-## The problem discovered in v0.1
+v0.1 delivered code correctly, then a rollback test found a wonderfully rude
+edge case: reverting the GitOps tag could trigger a fresh build that overwrote
+the rollback. The system technically supported `git revert`; it just tried to
+argue with it immediately afterwards.
 
-After v0.1 shipped a working GitOps flow, a rollback test revealed a bug.
+> **Why I wrote this down:** a safety claim deserves the failure mode, the
+> exact controls and the proof. “Fixed the pipeline” is not enough information
+> for the next person holding the pager — even when that person is also me.
 
-`git revert` on a commit that changed only `gitops/envs/dev/values.yaml` triggered the full delivery pipeline:
+## The original race
 
+```text
+revert a commit that changed only dev values
+  -> CI starts
+  -> image-build starts
+  -> gitops-update writes a new image tag
+  -> the intended rollback tag is overwritten
 ```
-git revert values.yaml commit
-  -> CI fires
-  -> image-build fires
-  -> gitops-update fires
-  -> gitops-update writes a NEW image tag to values.yaml
-  -> rollback tag gets overwritten
-```
 
-The core promise — _rollback = git revert_ — was functionally true, but had a race condition that made it unreliable.
+One values-only commit caused **3 unnecessary workflow runs** and could undo
+the operator's desired state. v0.2 added **3 controls**: 1 path filter and 2
+different concurrency policies.
 
----
+## Control 1: run CI only for application changes
 
-## What v0.2 fixed
-
-### Fix 1 — CI path filter (`ci.yml`)
-
-Added `paths` filter to the `push` and `pull_request` triggers:
+`ci.yml` filters both `push` and `pull_request` events:
 
 ```yaml
 on:
@@ -37,13 +39,13 @@ on:
       - "apps/demo-api/**"
 ```
 
-GitHub Actions evaluates which files changed in the commit. If none of them match `apps/demo-api/**`, the workflow is skipped entirely — no runner is allocated, no downstream workflows are triggered.
+A rollback changes `gitops/envs/dev/values.yaml`, which does not match
+`apps/demo-api/**`. GitHub therefore allocates **0 CI runners**, and the two
+`workflow_run` stages downstream receive no new successful CI run to follow.
 
-A `git revert` on `values.yaml` only touches `gitops/envs/dev/values.yaml`. That path does not match. CI does not fire.
+## Controls 2 and 3: serialize delivery intentionally
 
-### Fix 2 — Concurrency guards
-
-**`image-build.yml`** — `cancel-in-progress: false`
+The image build preserves work already in progress:
 
 ```yaml
 concurrency:
@@ -51,9 +53,10 @@ concurrency:
   cancel-in-progress: false
 ```
 
-We never interrupt a running build or push. Killing a `docker push` mid-flight can leave an incomplete or inconsistent image in GHCR.
+Interrupting a registry push is a poor way to save seconds, so a running build
+finishes.
 
-**`gitops-update.yml`** — `cancel-in-progress: true`
+The GitOps update uses the opposite policy:
 
 ```yaml
 concurrency:
@@ -61,76 +64,80 @@ concurrency:
   cancel-in-progress: true
 ```
 
-If multiple gitops-update runs are queued (e.g. from rapid pushes), only the newest desired state matters. Older queued runs are cancelled.
+If rapid pushes create multiple desired-state updates, the newest one wins and
+older work may be cancelled. Artifacts are preserved; stale declarations are
+not. Same keyword, different risk — hence the different settings.
 
----
+## The rollback proof
 
-## Rollback proof
+### Starting state
 
-### Setup
-
-A code change was pushed to `apps/demo-api/app/main.py` to trigger the full pipeline.
-
-After the pipeline completed, `gitops/envs/dev/values.yaml` contained:
+A change to `apps/demo-api/app/main.py` ran the complete pipeline. Dev reached:
 
 ```yaml
 image:
   tag: sha-98b8274
 ```
 
-Argo CD synced and deployed `sha-98b8274`.
+Argo CD deployed `sha-98b8274`.
 
-### Rollback
+### Action
 
-The gitops-update commit was reverted:
+The generated GitOps commit was reverted:
 
 ```bash
 git revert 06c797a --no-edit
 git push
 ```
 
-This commit changed only `gitops/envs/dev/values.yaml`.
+That new commit touched exactly **1 file**:
+`gitops/envs/dev/values.yaml`.
 
-### Results
+### Observed result
 
-GitHub Actions run list after the revert push — no new CI run appeared:
+The last workflow runs remained the ones from the earlier code push:
 
+```text
+completed  success  GitOps update         workflow_run  2026-06-29T10:35:37Z
+completed  success  Build and push image  workflow_run  2026-06-29T10:33:55Z
+completed  success  CI                    push          2026-06-29T10:33:23Z
 ```
-completed  success  GitOps update        workflow_run  2026-06-29T10:35:37Z  (from previous push)
-completed  success  Build and push image  workflow_run  2026-06-29T10:33:55Z  (from previous push)
-completed  success  CI                   push          2026-06-29T10:33:23Z  (from previous push)
-```
 
-The revert pushed at ~10:36Z produced no new workflow runs.
+The revert was pushed at about `10:36Z` and created **0 new workflow runs**.
 
-| Check | Result |
-|-------|--------|
-| CI triggered after revert | No |
-| New image built | No |
-| New `chore: update demo-api image tag` commit | No |
-| `values.yaml` tag after revert | `sha-a6e5648` (rollback tag) |
-| Argo CD status | `Synced + Healthy` |
-| `curl /version` | `{"version":"sha-a6e5648"}` |
+| Check | Observed result |
+| --- | --- |
+| CI runs after the revert | `0` |
+| new images built | `0` |
+| new automated tag commits | `0` |
+| dev tag after the revert | `sha-a6e5648` |
+| Argo CD | `Synced` and `Healthy` |
+| `/version` | `{"version":"sha-a6e5648"}` |
 
----
+That is the behavior the design promised: one revert changed desired state,
+and the pipeline politely stayed out of the way.
 
 ## Known constraints
 
-### `gitops-update` commits directly to `main`
+### The bot writes directly to `main`
 
-The automated GitOps update workflow pushes directly to `main` using `GITHUB_TOKEN` with `contents: write`. This is a deliberate decision for v0.2.
+`gitops-update.yml` uses `GITHUB_TOKEN` with `contents: write`. This was a
+deliberate v0.2 decision. If `main` later requires every change to arrive
+through a PR, the current workflow will fail because its token cannot bypass
+that rule by default.
 
-If branch protection is enabled on `main` in the future (e.g. "require pull request before merge"), `gitops-update` will break because `GITHUB_TOKEN` cannot bypass branch protection by default.
+There are **3 sensible next options**:
 
-Options for when that becomes relevant:
-1. Keep `main` without branch protection in this lab.
-2. Switch from `GITHUB_TOKEN` to a GitHub App installation token.
-3. Change `gitops-update` to open a PR instead of pushing directly.
+1. Keep `main` unprotected in this lab.
+2. Use a GitHub App installation token with the required policy access.
+3. Make `gitops-update` open a PR.
 
-Branch protection is out of scope for v0.2.
+Branch-protection work remains outside v0.2.
 
-### `cancel-in-progress: false` on image-build
+### Image builds are serialized, not fully FIFO
 
-With `cancel-in-progress: false`, GitHub holds at most one pending run per concurrency group. If three fast commits arrive, the middle pending run can be replaced by the newest one.
-
-Full FIFO queuing via `queue: max` is out of scope for v0.2.
+With `cancel-in-progress: false`, GitHub keeps the running build and at most one
+pending run per concurrency group. Given 3 fast commits, the middle pending run
+may be replaced by the newest. Full FIFO queuing is not implemented in v0.2;
+the trade-off is documented so nobody mistakes a concurrency guard for a
+message broker wearing a YAML hat.

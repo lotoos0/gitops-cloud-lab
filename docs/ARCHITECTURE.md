@@ -1,66 +1,102 @@
 # Architecture
 
-## The big picture
+This lab uses Git as the desired-state ledger and Argo CD as the patient
+reconciler that keeps the cluster honest. The application is intentionally
+small; the delivery path is the thing under the microscope.
 
-The whole point is to have Git as the single source of truth and let Argo CD do the heavy lifting of reconciling the cluster state. Here's how the pieces connect:
+> **A note from me:** I chose an explicit chain because I want every hand-off to
+> be visible: test result, image tag, Git change and cluster state. “Something
+> automated happened somewhere” is not an architecture diagram.
 
+## The system at a glance
+
+```text
+developer changes apps/demo-api/**
+             |
+             | push to main
+             v
+GitHub Actions
+  1. CI -------- runs 4 pytest tests
+       |
+       | success
+       v
+  2. image-build -------- builds and pushes sha-<7-char-SHA> to GHCR
+       |
+       | success
+       v
+  3. gitops-update ------- writes that tag to dev values and commits to main
+                                  |
+                                  v
+Git: gitops/envs/dev/values.yaml
+                                  |
+                                  | polled about every 3 minutes
+                                  v
+Argo CD: demo-api-dev -> Helm -> Deployment -> /version
+
+Human promotion PR
+  copies one verified dev tag to gitops/envs/prod/values.yaml
+                                  |
+                                  v
+Argo CD: demo-api-prod -> Helm -> Deployment -> /version
 ```
-developer
-  │
-  │ git push (1 code change)
-  ▼
-GitHub — main branch
-  │
-  ├─► [workflow: ci]            — installs deps, runs tests, blocks on failure
-  │
-  ├─► [workflow: image-build]   — builds Docker image, pushes to GHCR
-  │                               tag format: sha-<7-char commit SHA>
-  │
-  └─► [workflow: gitops-update] — yq writes new image.tag to gitops/envs/dev/values.yaml
-                                   commits as "chore: update demo-api image tag to sha-xxxx"
-                                   pushes to main
-                                        │
-                                        ▼
-                                  Argo CD (running in kind cluster)
-                                    │ polls Git every ~3 minutes
-                                    │ detects the values.yaml change
-                                    ▼
-                                  helm upgrade → Kubernetes Deployment updated
-                                    │
-                                    ▼
-                                  /version returns the new tag
-```
 
-3 workflows, 1 cluster, 1 values file driving everything.
+In short: **3 workflows**, **1 image artifact**, **2 desired-state files**,
+**2 Argo CD Applications**, **2 namespaces** and **0 manual deployment
+commands** in the normal path.
 
-## Components
+## Components and ownership
 
-| Component | What it does |
-|-----------|-------------|
-| `apps/demo-api` | Python FastAPI app — 3 endpoints: `/health`, `/ready`, `/version` |
-| `deploy/helm/demo-api` | Helm chart with `Deployment` + `Service`, parametrized by `image.tag` |
-| `gitops/envs/dev/values.yaml` | The single source of truth for dev — only file Argo CD reads for image tag |
-| `gitops/apps/demo-api-application.yaml` | Argo CD Application manifest pointing to the Helm chart + dev values |
-| `infra/local/` | Terraform skeleton for local bootstrap (kind cluster, namespaces) |
-| `.github/workflows/` | 3 pipelines: `ci.yml`, `image-build.yml`, `gitops-update.yml` |
+| Component | Owns | Does not own |
+| --- | --- | --- |
+| `apps/demo-api` | 3 HTTP endpoints and 4 tests | deployment decisions |
+| `deploy/helm/demo-api` | Kubernetes `Deployment` and `Service` templates | environment-specific image tags |
+| `gitops/envs/dev/values.yaml` | automatic dev desired state | prod promotion |
+| `gitops/envs/prod/values.yaml` | human-approved prod desired state | image building |
+| `gitops/apps/demo-api-*.yaml` | Argo CD source, destination and sync policy | source compilation |
+| `.github/workflows/` | test, build and dev tag update | direct cluster mutation |
+| `infra/local/` | local bootstrap support and Terraform direction | cloud infrastructure today |
 
-## Rollback
+Both Applications use the same Helm chart and track `main`, but deploy into
+different namespaces: `demo-api` and `demo-api-prod`. That gives environment
+separation without copying the chart and raising twins that immediately drift
+apart.
 
-No special tooling needed. Rollback is just reverting the GitOps commit:
+## Reconciliation rules
+
+Argo CD has automated sync, pruning, self-healing and namespace creation enabled
+for both Applications. The important distinction is therefore **how Git
+changes**, not whether Argo CD syncs:
+
+- dev values change automatically after all upstream workflows succeed;
+- prod values change only through a human-reviewed promotion PR.
+
+Once either value is committed, Argo CD applies it. Production is human-gated
+at Git, where the decision is reviewable and revertible.
+
+## Rollback model
+
+Rollback creates a new Git commit that reverses the bad desired state:
 
 ```bash
-git log --oneline gitops/envs/dev/values.yaml   # find the tag commit you want to undo
-git revert <commit-sha>                          # revert it — creates a new commit
-git push                                         # Argo CD detects the revert and syncs back
+git log --oneline gitops/envs/dev/values.yaml
+git revert <bad-gitops-commit> --no-edit
+git push
 ```
 
-Argo CD picks up the reverted `values.yaml` within ~3 minutes and rolls the deployment back to the previous image tag. Full audit trail in Git, zero kubectl.
+For prod, use `gitops/envs/prod/values.yaml`. Argo CD normally detects the
+revert within about **3 minutes** and restores the earlier image. The audit
+trail stays intact, and nobody has to arm-wrestle the reconciler with an
+imperative `kubectl set image`.
 
-## What's explicitly out of scope in v0.1
+## Deliberate final boundaries
 
-| What | Returns when |
-|------|-------------|
-| `infra/aws/` | v0.4 |
-| `gitops/envs/prod/` | v0.3 |
-| `/metrics` endpoint | v0.5 |
-| Argo CD Image Updater | not planned — explicit yq update is a feature, not a limitation |
+| Not included | Final decision |
+| --- | --- |
+| AWS infrastructure | outside this completed local-first lab |
+| metrics and monitoring | outside the completed delivery scope |
+| Argo CD Image Updater | excluded; explicit Git tag updates are part of the proof |
+| enforced branch protection | not enabled; documented PR discipline is currently the control |
+
+These are final design boundaries, not forgotten TODOs. The project is 100%
+complete against its chosen scope; the table marks where the demonstration
+ends, with no mysterious vNext waiting behind the curtain.

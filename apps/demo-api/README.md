@@ -1,18 +1,26 @@
 # demo-api
 
-A tiny Python FastAPI app with exactly 3 endpoints. Its only job is to be deployable — health checks for Kubernetes, and `/version` to prove which image is actually running.
+`demo-api` is a deliberately tiny FastAPI service. It has **3 endpoints** and
+**4 tests** because its real job is not business logic; its job is to make a
+container delivery pipeline observable.
 
-## Endpoints
+> **Why I kept it tiny:** when `/version` reports the wrong SHA, I want to debug
+> GitOps, not wonder whether an exciting domain model has joined the incident.
 
-| Endpoint | Response |
-|----------|----------|
-| `GET /health` | `{"status": "ok"}` |
-| `GET /ready` | `{"status": "ready"}` |
-| `GET /version` | `{"service", "version", "environment", "commit"}` |
+## HTTP contract
 
-No `/metrics` — that's v0.5 territory.
+| Endpoint | Expected response | Kubernetes job |
+| --- | --- | --- |
+| `GET /health` | `{"status":"ok"}` | liveness probe |
+| `GET /ready` | `{"status":"ready"}` | readiness probe |
+| `GET /version` | `service`, `version`, `environment`, `commit` | deployment proof |
 
-## Run locally
+`GET /metrics` intentionally returns `404`; monitoring sits outside the final
+scope, and one of the **4 tests** protects that boundary.
+
+## Run it locally
+
+From `apps/demo-api/`:
 
 ```bash
 python -m venv .venv
@@ -21,16 +29,32 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-## Run tests
+The server listens on `http://127.0.0.1:8000` by default. Try:
+
+```bash
+curl http://127.0.0.1:8000/version
+```
+
+With no environment overrides, the response uses `version=dev`,
+`environment=dev` and `commit=unknown`. Honest defaults: no fake provenance.
+
+## Run the tests
 
 ```bash
 python -m pytest tests/ -v
 ```
 
-## Environment variables
+The suite checks **2 probe responses**, **5 fields/values** on `/version`, and
+**1 intentional 404** for `/metrics` across **4 test functions**.
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `APP_VERSION` | `dev` | image tag injected by CI (e.g. `sha-abc1234`) |
-| `APP_ENV` | `dev` | environment name |
-| `GIT_COMMIT` | `unknown` | full commit SHA |
+## Runtime metadata
+
+| Variable | Default | What it tells the reader |
+| --- | --- | --- |
+| `APP_VERSION` | `dev` | image tag, for example `sha-abc1234` |
+| `APP_ENV` | `dev` | deployment environment |
+| `GIT_COMMIT` | `unknown` | full source commit SHA |
+
+CI bakes the version and commit into the image. Helm supplies the environment
+at runtime, which lets the same artifact run in dev and prod without changing
+its coat in the hallway.

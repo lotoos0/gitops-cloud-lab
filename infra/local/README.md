@@ -1,23 +1,45 @@
-# infra/local
+# Local infrastructure
 
-Terraform skeleton for local infrastructure. Right now it's intentionally minimal — just enough to prove the IaC pattern exists and `terraform validate` passes.
+This directory is the intentionally modest Terraform corner of the lab. Today
+it proves that the IaC structure and constraints are valid; it does **not**
+provision the kind cluster yet.
 
-Cloud infrastructure (`infra/aws/`) is coming in v0.4. This directory will grow into a full local bootstrap (kind cluster creation, namespace setup, GHCR pull secret) before that.
+> **My reasoning:** I would rather publish a small, truthful skeleton than a
+> grand “platform” made mostly of comments. Cluster bootstrap lives in the
+> Makefile, while cloud infrastructure stays outside this finished lab.
 
-## What's here
+## What exists today
 
-| File | Purpose |
-|------|---------|
-| `providers.tf` | Terraform version constraints + null provider |
-| `variables.tf` | `cluster_name` variable (default: `gitops-cloud-lab`) |
-| `main.tf` | Placeholder null_resource — will become kind cluster bootstrap |
+| File | Current responsibility |
+| --- | --- |
+| `providers.tf` | requires Terraform `>= 1.6` and the `hashicorp/null` provider `~> 3.0` |
+| `variables.tf` | defines 1 string input, `cluster_name`, defaulting to `gitops-cloud-lab` |
+| `main.tf` | declares 1 `null_resource` placeholder keyed by that cluster name |
+| `scripts/fix-coredns.sh` | applies the network-specific CoreDNS repair used by bootstrap |
 
-## Usage
+That is **3 Terraform files**, **1 placeholder resource** and **0 cloud
+resources**. The numbers are small on purpose.
+
+## Validate it
+
+From this directory:
 
 ```bash
 terraform init
-terraform validate
 terraform fmt -check
+terraform validate
 ```
 
-No `terraform apply` needed yet — there's nothing to provision locally via Terraform in v0.1. The kind cluster is managed through the Makefile (`make cluster-up`).
+There is no useful `terraform apply` step yet: a `null_resource` cannot build a
+cluster by sheer optimism. Use the repository Makefile instead:
+
+```bash
+make kind-create
+# or run the complete 5-step local setup
+make bootstrap
+```
+
+This is the final infrastructure boundary for the project: the local bootstrap
+is complete through the Makefile and CoreDNS script, while `infra/aws/` was
+deliberately not built. The skeleton records that choice without advertising a
+future season that is not coming.
