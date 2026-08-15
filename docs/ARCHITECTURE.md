@@ -22,50 +22,34 @@ which artifact should run; Argo CD handles the cluster. Each hand-off is visible
 and can be inspected later, which is much more useful than a pipeline step
 quietly waving `kubectl` at production.
 
-## System overview
+## Delivery overview
 
 ```mermaid
-flowchart LR
-    Developer[Developer]
+flowchart TB
+    Push["Push app change<br/>to main"]
+    Tests["CI<br/>4 pytest tests"]
+    Build["Build image<br/>sha-xxxxxxx"]
+    Registry["GHCR<br/>immutable image"]
+    UpdateDev["GitOps update<br/>commit dev image.tag"]
+    ArgoDev["Argo CD<br/>sync dev"]
+    Dev["DEV<br/>demo-api namespace"]
+    Promotion["Human-reviewed PR<br/>copy verified tag"]
+    ProdValues["Commit prod<br/>image.tag"]
+    ArgoProd["Argo CD<br/>sync prod"]
+    Prod["PROD<br/>demo-api-prod namespace"]
 
-    subgraph GitHub[GitHub]
-        Repository[(Repository<br/>main branch)]
-        CI[CI<br/>4 pytest tests]
-        Build[Image build]
-        Update[GitOps update]
-        DevValues[dev values<br/>image.tag]
-        ProdValues[prod values<br/>image.tag]
-    end
-
-    Registry[(GHCR<br/>demo-api:sha-xxxxxxx)]
-
-    subgraph Cluster[kind cluster: gitops-cloud-lab]
-        ArgoDev[Argo CD<br/>demo-api-dev]
-        ArgoProd[Argo CD<br/>demo-api-prod]
-        Helm[Shared Helm chart]
-        DevNamespace[Namespace: demo-api<br/>Deployment + Service]
-        ProdNamespace[Namespace: demo-api-prod<br/>Deployment + Service]
-    end
-
-    Developer -->|push application change| Repository
-    Repository -->|apps/demo-api/** on main| CI
-    CI -->|successful workflow_run| Build
-    Build -->|push immutable image| Registry
-    Build -->|successful workflow_run| Update
-    Update -->|commit tag| DevValues
-    Developer -->|promote verified tag in PR| ProdValues
-
-    Repository --- DevValues
-    Repository --- ProdValues
-    Repository --- Helm
-    DevValues --> ArgoDev
+    Push --> Tests
+    Tests -->|pass| Build
+    Build -->|push| Registry
+    Build -->|success| UpdateDev
+    UpdateDev --> ArgoDev
+    ArgoDev --> Dev
+    Dev -.->|verify tag| Promotion
+    Promotion --> ProdValues
     ProdValues --> ArgoProd
-    Helm --> ArgoDev
-    Helm --> ArgoProd
-    ArgoDev -->|render and sync| DevNamespace
-    ArgoProd -->|render and sync| ProdNamespace
-    Registry -.->|image pull| DevNamespace
-    Registry -.->|image pull| ProdNamespace
+    ArgoProd --> Prod
+    Registry -.->|image pull| Dev
+    Registry -.->|same promoted tag| Prod
 ```
 
 The normal delivery path contains **3 workflows**, **1 immutable image
@@ -75,6 +59,38 @@ namespaces**. It contains **0 direct deployment commands from CI**.
 Those numbers are small on purpose. Three workflows make the test, build and
 desired-state update boundaries explicit. Two values files and two Applications
 provide dev/prod separation without creating two copies of the Helm chart.
+
+## Runtime topology
+
+```mermaid
+flowchart TB
+    Git["Git repository<br/>main"]
+    Chart["Shared Helm chart"]
+    DevValues["dev values<br/>image.tag + APP_ENV"]
+    ProdValues["prod values<br/>image.tag + APP_ENV"]
+    DevApp["Argo CD Application<br/>demo-api-dev"]
+    ProdApp["Argo CD Application<br/>demo-api-prod"]
+    DevNamespace["DEV namespace<br/>Deployment + Service"]
+    ProdNamespace["PROD namespace<br/>Deployment + Service"]
+    Registry["GHCR<br/>demo-api:sha-xxxxxxx"]
+
+    Git --> Chart
+    Git --> DevValues
+    Git --> ProdValues
+    Chart --> DevApp
+    DevValues --> DevApp
+    Chart --> ProdApp
+    ProdValues --> ProdApp
+    DevApp -->|render and sync| DevNamespace
+    ProdApp -->|render and sync| ProdNamespace
+    Registry -.->|image pull| DevNamespace
+    Registry -.->|image pull| ProdNamespace
+```
+
+The first diagram answers **how a commit reaches an environment**. The second
+answers **what Argo CD combines at runtime**: one chart, one environment-specific
+values file and one immutable image. Keeping those views separate makes both
+the delivery sequence and the cluster layout readable without diagram yoga.
 
 ## Delivery paths
 
