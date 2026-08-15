@@ -97,14 +97,15 @@ update; neither is part of this lab.
 
 ## Design decisions
 
-| Decision                          | Why                                                       | Trade-off                                                                   |
-| --------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------- |
-| single-node kind cluster          | fast, local and close to the Kubernetes API used in CI    | not a production control plane                                              |
-| SHA-based image tags              | tie the deployed artifact to one source commit            | tags remain a project convention rather than registry-enforced immutability |
-| GitHub Actions updates dev values | every selected tag becomes an auditable Git change        | bot needs repository write access                                           |
-| Argo CD owns deployment           | CI stays outside the cluster and drift is corrected       | Git polling can add about 3 minutes                                         |
-| one chart, two values files       | avoids duplicated templates while separating environments | both environments share chart changes                                       |
-| PR-based prod promotion           | promotes the tested artifact with a human audit trail     | the gate is procedural without branch protection                            |
+| Decision                          | Why                                                                  | Trade-off                                                                   |
+| --------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| single-node kind cluster          | fast, local and close to the Kubernetes API used in CI               | not a production control plane                                              |
+| SHA-based image tags              | tie the deployed artifact to one source commit                       | tags remain a project convention rather than registry-enforced immutability |
+| GitHub Actions updates dev values | every selected tag becomes an auditable Git change                   | bot needs repository write access                                           |
+| Argo CD owns deployment           | CI stays outside the cluster and drift is corrected                  | Git polling can add about 3 minutes                                         |
+| one chart, two values files       | avoids duplicated templates while separating environments            | both environments share chart changes                                       |
+| manual prod promotion             | keeps the release decision explicit and separate from dev automation | the gate is procedural without branch protection                            |
 
 I chose explicit Git tag updates instead of Argo CD Image Updater because the
+
 commit itself records what should run. Less magic, more receipts.
