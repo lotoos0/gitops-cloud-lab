@@ -20,9 +20,6 @@ kubectl get events -A --sort-by='.lastTimestamp'
 | dev tag does not change | inspect `GitOps update` for write or `yq` errors |
 | rollback starts no workflows | expected: values changes do not match `apps/demo-api/**` |
 
-**Verify:** CI success triggers image build, then build success triggers the
-GitOps update.
-
 ## Argo CD is not healthy
 
 **Problem:** `OutOfSync` means Git has not been applied; `Degraded` means the

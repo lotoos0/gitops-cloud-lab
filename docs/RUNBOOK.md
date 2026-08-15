@@ -52,9 +52,9 @@ environment.
 
 ## Deploy to dev
 
-Push a change under `apps/demo-api/**` to `main`. The **3-workflow** chain runs
-4 tests, publishes `demo-api:sha-xxxxxxx` and commits the tag to dev values.
-Allow about **3–5 minutes**, then check Git, Argo CD and runtime:
+Push a change under `apps/demo-api/**` to `main`. The pipeline publishes
+`demo-api:sha-xxxxxxx` and commits the tag to dev values. Allow about **3–5
+minutes**, then check Git, Argo CD and runtime:
 
 ```bash
 yq e '.image.tag' gitops/envs/dev/values.yaml

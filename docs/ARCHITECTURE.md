@@ -1,8 +1,8 @@
 # Architecture
 
-Git is the desired-state ledger for this lab. GitHub Actions creates and records
-an artifact; Argo CD reads that record and reconciles Kubernetes. CI therefore
-needs no cluster credentials and issues no direct deployment command.
+Git is the desired-state ledger for this lab. GitHub Actions builds the artifact
+and records its tag; Argo CD reads that state and reconciles Kubernetes. CI
+therefore needs no cluster credentials and issues no deployment command.
 
 > **Design principle:** every hand-off should be visible: test result, image
 > tag, Git change and cluster state. Hidden automation is convenient right up
@@ -36,20 +36,19 @@ flowchart TB
     ArgoProd --> Prod
 ```
 
-The normal path has **3 workflows**, **1 image**, **2 values files**, **2 Argo
-CD Applications** and **2 namespaces**. Dev updates automatically; prod receives
-the same verified tag through a human-reviewed PR.
+Dev follows the automated path; prod receives the verified dev tag through a
+human-reviewed PR.
 
 ## Components
 
 | Component | Responsibility |
 | --- | --- |
 | `apps/demo-api` | FastAPI service with 3 endpoints and 4 tests |
-| GitHub Actions | test, build and commit the dev image tag |
-| GHCR | store `demo-api:sha-<7-character-commit>` images |
-| Git | hold the dev and prod desired state |
-| Helm | render one shared Deployment and Service definition |
-| Argo CD | reconcile Git into the two Kubernetes namespaces |
+| GitHub Actions | tests, builds and commits the dev image tag |
+| GHCR | stores `demo-api:sha-<7-character-commit>` images |
+| Git | holds the dev and prod desired state |
+| Helm | renders one shared Deployment and Service definition |
+| Argo CD | reconciles Git into the two Kubernetes namespaces |
 
 Both Applications track `main` and use `deploy/helm/demo-api`. Environment
 separation comes from values and namespaces, not duplicated charts:
@@ -63,8 +62,8 @@ separation comes from values and namespaces, not duplicated charts:
 
 ### Development
 
-A push under `apps/demo-api/**` starts `CI`. Four passing tests trigger the image
-build for the exact tested commit. After GHCR receives the image,
+Only a push under `apps/demo-api/**` starts `CI`. A successful run triggers the
+image build for that exact commit. After GHCR receives the image,
 `gitops-update.yml` changes only `image.tag` in dev values and commits it to
 `main`.
 
@@ -74,13 +73,10 @@ changes are treated as drift.
 
 ### Production
 
-Production does not rebuild the application and does not follow dev
-automatically. A human copies a tag already verified in dev to prod values
-through a PR. After merge, Argo CD deploys that same artifact to
-`demo-api-prod`.
-
-This separates two decisions: automation proves that the image can be built and
-run; a person decides when the verified image should reach prod.
+Production neither rebuilds the application nor follows dev automatically. A
+human-reviewed PR copies the verified tag to prod values; after merge, Argo CD
+deploys that same artifact to `demo-api-prod`. Automation proves the image; a
+person chooses when to promote it.
 
 ## Pipeline safety
 
@@ -112,5 +108,4 @@ update; neither is part of this lab.
 | PR-based prod promotion | promotes the tested artifact with a human audit trail | the gate is procedural without branch protection |
 
 I chose explicit Git tag updates instead of Argo CD Image Updater because the
-repository is a teaching lab: the useful proof is the commit that says exactly
-what should run. Less magic, more receipts.
+commit itself records what should run. Less magic, more receipts.

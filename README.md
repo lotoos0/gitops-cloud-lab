@@ -4,9 +4,8 @@ A local-first DevOps lab that moves one small FastAPI service through a complete
 GitOps delivery loop. The application is deliberately simple; the useful part
 is the traceable path from code to Kubernetes.
 
-> **Why I built it:** I wanted a compact project that proves the full delivery
-> chain without a cloud bill or a hidden deploy button. Every artifact and
-> environment change should be visible in Git.
+> **Why I built it:** I wanted to prove the delivery chain without a cloud bill
+> or a hidden deploy button. Every environment change remains visible in Git.
 
 ## Delivery flow
 
@@ -29,8 +28,8 @@ Argo CD then reconciles the shared Helm chart into **2 environments**:
 | dev | `demo-api-dev` | `demo-api` | automatic after successful CI and build |
 | prod | `demo-api-prod` | `demo-api-prod` | human-reviewed promotion PR |
 
-CI publishes artifacts but never deploys directly to the cluster. Git contains
-the desired state; Argo CD does the cluster work.
+CI publishes artifacts but does not deploy to the cluster. Git holds the desired
+state; Argo CD reconciles it.
 
 ## Stack
 
@@ -59,25 +58,8 @@ until both Applications report `Synced` and `Healthy`:
 kubectl get applications -n argocd -w
 ```
 
-Verify the two environments in separate terminals:
-
-```bash
-# terminal 1
-kubectl port-forward svc/demo-api-dev -n demo-api 8080:80
-
-# terminal 2
-kubectl port-forward svc/demo-api-prod -n demo-api-prod 8081:80
-```
-
-From a third terminal:
-
-```bash
-curl http://localhost:8080/version
-curl http://localhost:8081/version
-```
-
-The responses should report the expected tag and the matching `dev` or `prod`
-environment. If local DNS objects, the troubleshooting guide knows that trick.
+Both Applications should converge to `Synced` and `Healthy`. Endpoint checks,
+promotion, rollback and known failure modes are covered in the documents below.
 
 ## Repository map
 
