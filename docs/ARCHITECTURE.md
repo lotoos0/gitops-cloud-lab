@@ -36,8 +36,7 @@ flowchart TB
     ArgoProd --> Prod
 ```
 
-Dev follows the automated path; prod receives the verified dev tag through a
-human-reviewed PR.
+Dev follows the automated path; prod receives the verified dev tag through a manual promotion PR.
 
 ## Components
 

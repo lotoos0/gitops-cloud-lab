@@ -18,11 +18,11 @@ kubectl get events -A --sort-by='.lastTimestamp'
 
 ## Workflow chain stops
 
-| Problem | Cause / next check |
-| --- | --- |
-| image build never starts | inspect `CI`; all 4 tests must pass |
-| GitOps update never starts | inspect `Build and push image`; GHCR push must succeed |
-| dev tag does not change | inspect `GitOps update` for write or `yq` errors |
+| Problem                      | Cause / next check                                       |
+| ---------------------------- | -------------------------------------------------------- |
+| image build never starts     | inspect `CI`; all 4 tests must pass                      |
+| GitOps update never starts   | inspect `Build and push image`; GHCR push must succeed   |
+| dev tag does not change      | inspect `GitOps update` for write or `yq` errors         |
 | rollback starts no workflows | expected: values changes do not match `apps/demo-api/**` |
 
 ## Argo CD is not healthy
@@ -86,7 +86,6 @@ CoreDNS should be `Running`, with no new resolver errors.
 - `server misbehaving`: apply the CoreDNS fix above.
 - `denied`: confirm the GHCR package is public and the requested image tag
   exists.
-
 - local image ignored: confirm `imagePullPolicy: IfNotPresent`, then run:
 
   ```bash
