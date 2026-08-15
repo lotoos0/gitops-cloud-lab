@@ -8,6 +8,11 @@ enough moving parts without debugging by horoscope.
 ```bash
 kubectl get applications -n argocd
 kubectl get pods -A
+```
+
+If the problem is not obvious, check recent events:
+
+```bash
 kubectl get events -A --sort-by='.lastTimestamp'
 ```
 
@@ -32,9 +37,15 @@ mean repository access, image pull or application health problems.
 
 ```bash
 kubectl describe application demo-api-dev -n argocd
+kubectl get pods -n demo-api
+kubectl describe pod <pod-name> -n demo-api
+kubectl logs <pod-name> -n demo-api
+```
+
+If the Application reports a repository access error, inspect repo-server:
+
+```bash
 kubectl logs -n argocd -l app.kubernetes.io/name=argocd-repo-server
-kubectl describe pod -n demo-api -l app=demo-api-dev
-kubectl logs -n demo-api -l app=demo-api-dev
 ```
 
 **Verify:** `kubectl get application demo-api-dev -n argocd` reports `Synced`
@@ -73,11 +84,8 @@ CoreDNS should be `Running`, with no new resolver errors.
 **Cause and fix:**
 
 - `server misbehaving`: apply the CoreDNS fix above.
-- `denied`: make GHCR public or authenticate without printing the token:
-
-  ```bash
-  gh auth token | docker login ghcr.io -u <github-username> --password-stdin
-  ```
+- `denied`: confirm the GHCR package is public and the requested image tag
+  exists.
 
 - local image ignored: confirm `imagePullPolicy: IfNotPresent`, then run:
 

@@ -19,7 +19,7 @@ flowchart TB
     DevTag["Commit dev<br/>image.tag"]
     ArgoDev["Argo CD<br/>sync dev"]
     Dev["DEV<br/>demo-api namespace"]
-    Promotion["Human-reviewed PR<br/>copy verified tag"]
+    Promotion["Manual promotion PR<br/>copy verified tag"]
     ProdTag["Commit prod<br/>image.tag"]
     ArgoProd["Argo CD<br/>sync prod"]
     Prod["PROD<br/>demo-api-prod namespace"]
@@ -41,22 +41,22 @@ human-reviewed PR.
 
 ## Components
 
-| Component | Responsibility |
-| --- | --- |
-| `apps/demo-api` | FastAPI service with 3 endpoints and 4 tests |
-| GitHub Actions | tests, builds and commits the dev image tag |
-| GHCR | stores `demo-api:sha-<7-character-commit>` images |
-| Git | holds the dev and prod desired state |
-| Helm | renders one shared Deployment and Service definition |
-| Argo CD | reconciles Git into the two Kubernetes namespaces |
+| Component       | Responsibility                                       |
+| --------------- | ---------------------------------------------------- |
+| `apps/demo-api` | FastAPI service with 3 endpoints and 4 tests         |
+| GitHub Actions  | tests, builds and commits the dev image tag          |
+| GHCR            | stores `demo-api:sha-<7-character-commit>` images    |
+| Git             | holds the dev and prod desired state                 |
+| Helm            | renders one shared Deployment and Service definition |
+| Argo CD         | reconciles Git into the two Kubernetes namespaces    |
 
 Both Applications track `main` and use `deploy/helm/demo-api`. Environment
 separation comes from values and namespaces, not duplicated charts:
 
-| Environment | Values | Application | Namespace |
-| --- | --- | --- | --- |
-| dev | `gitops/envs/dev/values.yaml` | `demo-api-dev` | `demo-api` |
-| prod | `gitops/envs/prod/values.yaml` | `demo-api-prod` | `demo-api-prod` |
+| Environment | Values                         | Application     | Namespace       |
+| ----------- | ------------------------------ | --------------- | --------------- |
+| dev         | `gitops/envs/dev/values.yaml`  | `demo-api-dev`  | `demo-api`      |
+| prod        | `gitops/envs/prod/values.yaml` | `demo-api-prod` | `demo-api-prod` |
 
 ## Delivery
 
@@ -73,10 +73,10 @@ changes are treated as drift.
 
 ### Production
 
-Production neither rebuilds the application nor follows dev automatically. A
-human-reviewed PR copies the verified tag to prod values; after merge, Argo CD
-deploys that same artifact to `demo-api-prod`. Automation proves the image; a
-person chooses when to promote it.
+Production neither rebuilds the application nor follows dev automatically.
+A manual promotion PR copies the verified tag to prod values;
+after merge, Argo CD deploys that same artifact to `demo-api-prod`.
+Automation proves the image; a person chooses when to promote it.
 
 ## Pipeline safety
 
@@ -98,14 +98,14 @@ update; neither is part of this lab.
 
 ## Design decisions
 
-| Decision | Why | Trade-off |
-| --- | --- | --- |
-| single-node kind cluster | fast, local and close to the Kubernetes API used in CI | not a production control plane |
-| SHA-based image tags | tie the deployed artifact to one source commit | tags remain a project convention rather than registry-enforced immutability |
-| GitHub Actions updates dev values | every selected tag becomes an auditable Git change | bot needs repository write access |
-| Argo CD owns deployment | CI stays outside the cluster and drift is corrected | Git polling can add about 3 minutes |
-| one chart, two values files | avoids duplicated templates while separating environments | both environments share chart changes |
-| PR-based prod promotion | promotes the tested artifact with a human audit trail | the gate is procedural without branch protection |
+| Decision                          | Why                                                       | Trade-off                                                                   |
+| --------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------- |
+| single-node kind cluster          | fast, local and close to the Kubernetes API used in CI    | not a production control plane                                              |
+| SHA-based image tags              | tie the deployed artifact to one source commit            | tags remain a project convention rather than registry-enforced immutability |
+| GitHub Actions updates dev values | every selected tag becomes an auditable Git change        | bot needs repository write access                                           |
+| Argo CD owns deployment           | CI stays outside the cluster and drift is corrected       | Git polling can add about 3 minutes                                         |
+| one chart, two values files       | avoids duplicated templates while separating environments | both environments share chart changes                                       |
+| PR-based prod promotion           | promotes the tested artifact with a human audit trail     | the gate is procedural without branch protection                            |
 
 I chose explicit Git tag updates instead of Argo CD Image Updater because the
 commit itself records what should run. Less magic, more receipts.

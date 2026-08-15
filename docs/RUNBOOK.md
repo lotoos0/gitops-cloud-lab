@@ -90,20 +90,17 @@ git pull
 git checkout -b feature/<issue-number>-promote-sha-xxxxxxx-to-prod
 ```
 
-Copy the verified tag to `gitops/envs/prod/values.yaml`. The diff should contain
-only **1 deletion and 1 addition** on `image.tag`:
+Copy the verified tag to `gitops/envs/prod/values.yaml`. The change should
+contain only **1 deletion and 1 addition** on `image.tag`. Commit and push it:
 
 ```bash
-git diff -- gitops/envs/prod/values.yaml
 git add gitops/envs/prod/values.yaml
 git commit -m "chore: promote demo-api sha-xxxxxxx to prod"
 git push -u origin feature/<issue-number>-promote-sha-xxxxxxx-to-prod
-gh pr create \
-  --title "Promote demo-api sha-xxxxxxx to prod" \
-  --body "Promotes the dev-verified tag to prod. Closes #<issue-number>."
-gh pr diff
-gh pr merge --squash --delete-branch
 ```
+
+**Open a PR, verify that only the prod `image.tag` changed, then squash-merge
+it.**
 
 Wait for reconciliation and verify production:
 
@@ -123,11 +120,11 @@ CD status and the prod `/version` response.
 
 ## Roll back
 
-Find the commit that introduced the bad desired tag:
+Find the commit that introduced the bad desired tag. For a prod rollback,
+inspect `gitops/envs/prod/values.yaml` instead.
 
 ```bash
 git log --oneline gitops/envs/dev/values.yaml
-# For prod, use gitops/envs/prod/values.yaml.
 ```
 
 Revert it and push the new commit:

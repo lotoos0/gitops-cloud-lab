@@ -23,24 +23,24 @@ One application push starts **3 GitHub Actions workflows**:
 
 Argo CD then reconciles the shared Helm chart into **2 environments**:
 
-| Environment | Application | Namespace | Delivery rule |
-| --- | --- | --- | --- |
-| dev | `demo-api-dev` | `demo-api` | automatic after successful CI and build |
-| prod | `demo-api-prod` | `demo-api-prod` | human-reviewed promotion PR |
+| Environment | Application     | Namespace       | Delivery rule                           |
+| ----------- | --------------- | --------------- | --------------------------------------- |
+| dev         | `demo-api-dev`  | `demo-api`      | automatic after successful CI and build |
+| prod        | `demo-api-prod` | `demo-api-prod` | manual PR-based promotion               |
 
 CI publishes artifacts but does not deploy to the cluster. Git holds the desired
-state; Argo CD reconciles it.
+state; Argo CD syncs the cluster to match Git.
 
 ## Stack
 
-| Tool | Role |
-| --- | --- |
-| kind | disposable local Kubernetes cluster |
+| Tool           | Role                                  |
+| -------------- | ------------------------------------- |
+| kind           | disposable local Kubernetes cluster   |
 | GitHub Actions | tests, image build and dev tag update |
-| Docker + GHCR | immutable image artifact |
-| Helm | one chart shared by dev and prod |
-| Argo CD | reconciliation and drift correction |
-| Terraform | records the local IaC boundary |
+| Docker + GHCR  | immutable image artifact              |
+| Helm           | one chart shared by dev and prod      |
+| Argo CD        | reconciliation and drift correction   |
+| Terraform      | records the local IaC boundary        |
 
 ## Quick start
 
